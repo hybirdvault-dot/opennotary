@@ -138,7 +138,8 @@ contract NotaryRegistryTest is Test {
         registry.registerNotary(vm.addr(SECOND_NOTARY_PK), COMMISSION_HASH, STATE_CODE, COMMISSION_EXPIRY);
     }
 
-    /// @notice registerNotary rejects a zero notary address (ZeroAddress) and a past commission expiry (InvalidExpiry).
+    /// @notice registerNotary rejects a zero notary address (ZeroAddress) and a past commission expiry (InvalidExpiry);
+    /// the constructor applies the same ZeroAddress guard to each of its three address arguments.
     function test_RegisterNotary_RevertsOnZeroAddressAndInvalidExpiry() public {
         vm.expectRevert(NotaryRegistry.ZeroAddress.selector);
         vm.prank(admin);
@@ -147,6 +148,15 @@ contract NotaryRegistryTest is Test {
         vm.expectRevert(NotaryRegistry.InvalidExpiry.selector);
         vm.prank(admin);
         registry.registerNotary(vm.addr(SECOND_NOTARY_PK), COMMISSION_HASH, STATE_CODE, block.timestamp - 1);
+
+        vm.expectRevert(NotaryRegistry.ZeroAddress.selector);
+        new NotaryRegistry(MockUSDC(address(0)), treasury, admin);
+
+        vm.expectRevert(NotaryRegistry.ZeroAddress.selector);
+        new NotaryRegistry(usdc, address(0), admin);
+
+        vm.expectRevert(NotaryRegistry.ZeroAddress.selector);
+        new NotaryRegistry(usdc, treasury, address(0));
     }
 
     // =====================================================================
@@ -297,7 +307,8 @@ contract NotaryRegistryTest is Test {
         registry.notarize(p.docHash, p.notary, p.signer, p.ipfsCid, p.docType, p.stateCode, p.timestamp, notarySig, signerSig);
     }
 
-    /// @notice notarize reverts with FutureTimestamp when the act timestamp is ahead of block.timestamp.
+    /// @notice notarize reverts with FutureTimestamp when the act timestamp is ahead of block.timestamp, and with
+    /// ZeroAddress when either declared party is the zero address (guard runs before signature verification).
     function test_Notarize_RevertsForFutureTimestamp() public {
         ActParams memory p = _actParams(keccak256("deed-future"), notary, signer);
         p.timestamp = block.timestamp + 1;
@@ -307,6 +318,38 @@ contract NotaryRegistryTest is Test {
 
         vm.expectRevert(NotaryRegistry.FutureTimestamp.selector);
         registry.notarize(p.docHash, p.notary, p.signer, p.ipfsCid, p.docType, p.stateCode, p.timestamp, notarySig, signerSig);
+
+        ActParams memory zeroSigner = _actParams(keccak256("deed-zero-signer"), notary, address(0));
+        bytes memory zeroSignerNotarySig = _signNotaryAttestation(NOTARY_PK, zeroSigner, registry.nonces(zeroSigner.notary));
+        bytes memory zeroSignerAck = _signSignerAck(SIGNER_PK, zeroSigner, registry.nonces(zeroSigner.signer));
+        vm.expectRevert(NotaryRegistry.ZeroAddress.selector);
+        registry.notarize(
+            zeroSigner.docHash,
+            zeroSigner.notary,
+            zeroSigner.signer,
+            zeroSigner.ipfsCid,
+            zeroSigner.docType,
+            zeroSigner.stateCode,
+            zeroSigner.timestamp,
+            zeroSignerNotarySig,
+            zeroSignerAck
+        );
+
+        ActParams memory zeroNotary = _actParams(keccak256("deed-zero-notary"), address(0), signer);
+        bytes memory zeroNotaryAttestation = _signNotaryAttestation(NOTARY_PK, zeroNotary, registry.nonces(zeroNotary.notary));
+        bytes memory zeroNotaryAck = _signSignerAck(SIGNER_PK, zeroNotary, registry.nonces(zeroNotary.signer));
+        vm.expectRevert(NotaryRegistry.ZeroAddress.selector);
+        registry.notarize(
+            zeroNotary.docHash,
+            zeroNotary.notary,
+            zeroNotary.signer,
+            zeroNotary.ipfsCid,
+            zeroNotary.docType,
+            zeroNotary.stateCode,
+            zeroNotary.timestamp,
+            zeroNotaryAttestation,
+            zeroNotaryAck
+        );
     }
 
     // =====================================================================
