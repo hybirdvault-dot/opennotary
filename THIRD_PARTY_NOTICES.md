@@ -53,18 +53,14 @@ callout below.
 
 ### Transitive dependencies of note
 
-These are not direct `package.json` entries (except the `@x402/*` quartet, which
-is declared because `@coinbase/cdp-sdk` requires it as a peer/resolution
-dependency), but they ship in the dependency tree and are named here for
-attribution completeness.
+These are not direct `package.json` entries, but they ship in the dependency
+tree and are named here for attribution completeness. (The `@x402/*` quartet
+previously listed here was removed from `package.json` after the build was
+verified to succeed without it.)
 
 | Name | Version | License | Source | Relationship |
 |---|---|---|---|---|
 | @coinbase/cdp-sdk | 1.58.0 | MIT | https://github.com/coinbase/cdp-sdk | transitive dependency |
-| @x402/core | 2.28.0 | Apache-2.0 | https://github.com/x402-foundation/x402 | resolution (peer) dep of @coinbase/cdp-sdk |
-| @x402/evm | 2.28.0 | Apache-2.0 | https://github.com/x402-foundation/x402 | resolution (peer) dep of @coinbase/cdp-sdk |
-| @x402/extensions | 2.28.0 | Apache-2.0 | https://github.com/x402-foundation/x402 | resolution (peer) dep of @coinbase/cdp-sdk |
-| @x402/svm | 2.28.0 | Apache-2.0 | https://github.com/x402-foundation/x402 | resolution (peer) dep of @coinbase/cdp-sdk |
 | @wagmi/connectors | 6.2.0 | MIT | https://github.com/wevm/wagmi | transitive via wagmi |
 | ethers | 6.17.0 | MIT | https://github.com/ethers-io/ethers.js | transitive via @ethereum-attestation-service/eas-sdk |
 
