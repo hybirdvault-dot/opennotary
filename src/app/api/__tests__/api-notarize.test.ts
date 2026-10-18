@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi, type MockInstance } from 'vitest';
 import { encodeAbiParameters, encodeEventTopics, type Hex } from 'viem';
 
 /**
@@ -467,5 +467,60 @@ describe('POST /api/notarize — happy path', () => {
       }),
     );
     expect(res.status).toBe(200);
+  });
+});
+
+/**
+ * R2: Bitcoin anchor failures must never be swallowed silently. The notarize
+ * submission itself still succeeds, but the response pins `otsQueued: false`
+ * with `otsError` surfaced, and the failure is logged via `console.error`.
+ */
+describe('POST /api/notarize — OTS anchor failure surfacing', () => {
+  let consoleErrorSpy: MockInstance;
+
+  beforeEach(() => {
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    consoleErrorSpy.mockRestore();
+  });
+
+  test('test_api_notarize_reportsOtsQueuedTrueWhenAnchorSucceeds', async () => {
+    const res = await POST(request(VALID_BODY));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.otsQueued).toBe(true);
+    expect(body.otsError).toBeUndefined();
+    expect(consoleErrorSpy).not.toHaveBeenCalled();
+  });
+
+  test('test_api_notarize_reportsOtsQueuedFalseAndLogsWhenAnchorFetchRejects', async () => {
+    // Network-level failure: the internal fetch to /api/anchor/btc rejects.
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('anchor network down')));
+
+    const res = await POST(request(VALID_BODY));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    // The notarization itself still succeeds; only the anchor queue failed.
+    expect(body.ok).toBe(true);
+    expect(body.attestationUid).toBe(`0x${'77'.repeat(32)}`);
+    expect(body.otsQueued).toBe(false);
+    expect(body.otsError).toBe('anchoring failed — will retry');
+    expect(consoleErrorSpy).toHaveBeenCalledWith('OTS anchor failed:', expect.any(Error));
+  });
+
+  test('test_api_notarize_reportsOtsQueuedFalseAndLogsWhenAnchorReturnsNon2xx', async () => {
+    // Application-level failure: the anchor endpoint answers non-2xx.
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 503 })));
+
+    const res = await POST(request(VALID_BODY));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.otsQueued).toBe(false);
+    expect(body.otsError).toBe('anchoring failed — will retry');
+    expect(consoleErrorSpy).toHaveBeenCalledWith('OTS anchor failed:', expect.any(Error));
   });
 });

@@ -21,7 +21,7 @@ const nextConfig = {
               "default-src 'self'",
               "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
               "connect-src 'self' https: wss:",
-              "frame-src 'self' https://*.walletconnect.com https://verify.walletconnect.com",
+              "frame-src 'self' https://*.walletconnect.com https://*.walletconnect.org https://verify.walletconnect.org",
               "object-src 'none'",
               "base-uri 'self'",
               "frame-ancestors 'none'",

@@ -1,0 +1,178 @@
+CHECK: Yellow-light hotfix R1-X4-F6-K1-KV-R2-R3 independent verification
+Target: commit 642d18f (clean tree) | Workspace: /home/BALOCH/Desktop/opennotary
+Verifier: Worker B (independent) | Date: 2026-10-18
+
+=== ITEM RESULTS ===
+1. R1 CSP (next.config.js) — CODE VERIFIED / BROWSER ACCEPTANCE FAILED (see below)
+   - connect-src 'self' https: wss:            PRESENT (line 23)
+   - script-src 'self' 'unsafe-inline' 'unsafe-eval'  PRESENT (line 22)
+   - frame-src 'self' https://*.walletconnect.com https://verify.walletconnect.com  PRESENT (line 24)
+   - Served live on / and /notarize (curl -sI): exact directives confirmed in HTTP response.
+   - BROWSER: WalletConnect SDK (chunk 3618.aff0aeb2e10293f2.js) loads its attestation iframe
+     from https://verify.walletconnect.org/v3/attestation — DIFFERENT DOMAIN than the
+     frame-src allowlist (.org vs .com). Browser logs securitypolicyviolation:
+       violatedDirective: frame-src
+       blockedURI: https://verify.walletconnect.org
+     REPRODUCED 3/3 (desktop x2, mobile x1). Console-equivalent CSP violation = FAIL per
+     acceptance criteria. Fix needed: add https://verify.walletconnect.org (or
+     https://*.walletconnect.org) to frame-src.
+
+2. X4 storage auth — VERIFIED
+   - src/lib/storage.ts createStorageClient: throws Error('W3_PRINCIPAL and W3_PROOF are not
+     set (w3up UCAN credentials)') when either missing (lines 49-53).
+   - UCAN wiring present: parsePrincipal -> create({principal, store: StoreMemory()}) ->
+     addSpace(parseProof(proof)) -> setCurrentSpace(space.did()) (lines 55-61).
+   - No bearer-token storage auth remains (bearer hits in repo are NOTARIZE/ANCHOR/WEBHOOK
+     API-route auth only).
+   - Tests: test_createStorageClient_throwsWhenUcanEnvIsMissing +
+     test_createStorageClient_buildsClientFromUcanEnv (asserts parsePrincipal/create/
+     addSpace/setCurrentSpace each called once) — both PASS (storage.test.ts 10/10).
+   - Real upload: blocked pending boss keys — W3_PRINCIPAL/W3_PROOF confirmed absent from
+     .env (non-empty-value grep: 0/0). Clean-rejection path covered by the unit test above.
+
+3. K1 ipfsUri derivation — VERIFIED
+   - src/app/api/verify/[docHash]/route.ts lines 154-160: ipfsUri = `https://${bytes32ToCid(
+     act.ipfsCid)}.ipfs.w3s.link` derived from ON-CHAIN act.ipfsCid only; comment states
+     "never a client-asserted extras field". extras.ipfsUri is not read anywhere in the route.
+   - Test fixture conflict confirmed: test_api_verify_surfacesCachedExtrasAndAttestation sets
+     extras.ipfsUri='ipfs://bafybei...' (deliberately different) and asserts the derived
+     bytes32ToCid(ON_CHAIN_ACT.ipfsCid) URL wins. api-verify.test.ts 15/15 PASS.
+
+4. KV TTL — VERIFIED
+   - grep "ex:" src/app/api/_lib/kv-extras.ts -> exactly ONE hit: line 45,
+     kv.set(`commission:${record.notary}`, record, { ex: TTL_SECONDS }).
+   - act-extras (line 58) and ots:<digest> (line 84) written WITHOUT TTL options.
+     Commissions keep 24h TTL. Matches spec exactly.
+
+5. R2 anchor failure surfacing — CODE VERIFIED / TESTS MISSING (gap)
+   - src/app/api/notarize/route.ts lines ~343-365: try/catch around /api/anchor/btc call;
+     catch does console.error('OTS anchor failed:', err); otsQueued=false;
+     otsError='anchoring failed — will retry'; response includes otsQueued and conditional
+     otsError. Code matches the spec.
+   - BUT: api-notarize.test.ts (26 tests) contains ZERO anchor-failure tests — grep for
+     otsQueued/otsError/OTS anchor/anchoring failed/console across all *.test.ts returns
+     nothing. The happy-path tests only assert ok/attestationUid; even the success response
+     shape (otsQueued:true) is unpinned. api-notarize.test.ts was NOT modified by 642d18f
+     (git show --stat). The claimed "api-notarize tests" verification does not exist.
+
+6. R3 error precedence — VERIFIED
+   - contracts/src/NotaryRegistry.sol notarize(): `if (!isNotaryActive(notary)) revert
+     NotaryNotActive();` (line 267) BEFORE `if (stateCode != notaries[notary].stateCode)
+     revert JurisdictionMismatch();` (line 268).
+   - forge test --match-test test_Notarize_RevertsWhenNotaryUnregisteredOrExpired -vvv:
+     PASS (gas 289438). Test asserts NotaryNotActive selector for never-registered notary
+     WITH mismatched stateCode "NY" (contracts/test/NotaryRegistry.t.sol lines 291-315).
+
+7. README — VERIFIED
+   - grep -i "phase 1.*in progress" README.md -> NO MATCH (exit 1). Status line now reads
+     "Phases 1-3 complete ... Phase 4 ... in progress".
+   - "## Production Upgrade Path (post-hackathon)" (line 83) covers all five required
+     topics: admin key (AccessManager/multisig/timelock), notary onboarding/registerNotary,
+     rate limiting (KV/Upstash), signer identity (World ID/Passport), OTS proof persistence.
+
+=== GATES ===
+a. forge test -vvv (run from contracts/ — foundry.toml lives there; running from repo root
+   silently matches NOTHING and exits 0, noted as a footgun):
+   23 tests passed, 0 failed, 0 skipped (2 suites: NotaryRegistryTest 22 + ParityTest 1).
+   Tail: "Ran 2 test suites in 55.21ms: 23 tests passed, 0 failed, 0 skipped (23 total tests)"
+b. npm test x2: run1 331/331 passed (19 files), run2 331/331 passed (19 files), exit 0 both.
+   Determinism: per-file test counts identical across runs (diff of sorted per-file lines:
+   empty). Overall test-set identical; only wall-clock timings and parallel file completion
+   order differ between runs.
+c. npx tsc --noEmit: exit 0, zero output — CLEAN.
+d. npm run build: exit 0. Routes compiled (/, /notarize, /verify, /verify/[docHash],
+   /notary/register, /notary/dashboard, /legal + 7 API routes). Static pages 12/12.
+
+=== BROWSER TEST (R1 acceptance; server npm run start -- -p 3200, HTTP 200) ===
+Console CSP scan method: document securitypolicyviolation listener (the same event channel
+Chromium reports as "Refused to ..." console entries) + console.error/wrap + window error
+and unhandledrejection capture, installed per page context. CSP headers independently
+verified served via curl -sI on / and /notarize.
+
+Desktop 1280x800:
+- / : renders (hero, stats, badges, demo, footer). CSP violations: 0. Screenshot:
+  r1-csp-landing-desktop.png. Load-time evidence: 39 script resources in performance
+  entries (webpack/main-app chunks) — script-src not refused; React root hydrated.
+- /notarize : upload UI renders (steps 1-3, drag&drop, "Choose a document to notarize",
+  doc-type select, state code, signer address, disabled "Continue to signing"). Violations: 0.
+- Wallet modal: OPENS ("Connect a Wallet" dialog; Rainbow/Base/MetaMask/WalletConnect).
+  Selecting WalletConnect -> SDK injects iframe
+  https://verify.walletconnect.org/v3/attestation?projectId=... -> CSP frame-src BLOCKS it.
+  violation: {violatedDirective: "frame-src", blockedURI: "https://verify.walletconnect.org",
+  sourceFile: ".../3618.aff0aeb2e10293f2.js"} x2 runs. Screenshot: r1-wallet-modal-desktop.png.
+  Modal opens but its WalletConnect iframe does NOT render (blocked) -> R1 acceptance FAIL.
+- /verify/0x<64hex> : loads ("Verifying..." -> graceful "Verification failed ... retry in a
+  moment" — expected without RPC config). CSP violations: 0, console errors: 0. "Retry
+  verification" exercises same-origin fetch (connect-src 'self') clean. Screenshot:
+  r1-verify-page-desktop.png.
+
+Mobile 390x844:
+- / : renders with bottom primary nav. Violations: 0. Screenshot: r1-csp-landing-mobile.png.
+- /notarize : upload UI renders. Violations: 0. Screenshot: r1-notarize-mobile.png.
+- Wallet modal: opens; WalletConnect selection reproduces the identical frame-src violation
+  (blockedURI https://verify.walletconnect.org). Screenshot: r1-wallet-modal-mobile.png.
+- connect-src: ZERO violations anywhere (https: + wss: coverage OK; same-origin OK).
+
+Screenshots (all real captures, PNG verified via file(1), exact viewport sizes):
+  docs/qa/phase4/r1-csp-landing-desktop.png   (1280x800, 357382 B)
+  docs/qa/phase4/r1-wallet-modal-desktop.png  (1280x800, 31955 B)
+  docs/qa/phase4/r1-verify-page-desktop.png   (1280x800, 139432 B)
+  docs/qa/phase4/r1-csp-landing-mobile.png    (390x844, 208682 B)
+  docs/qa/phase4/r1-notarize-mobile.png       (390x844, 117379 B)
+  docs/qa/phase4/r1-wallet-modal-mobile.png   (390x844, 102453 B)
+
+BLOCKED-DEVICE / BLOCKED-KEY ITEMS (recorded honestly, not verified here):
+- Full wallet connection (sign-in with Rainbow/MetaMask/WalletConnect mobile): requires a
+  real device/wallet — blocked-device, boss's real-device test.
+- Real IPFS upload via w3up: blocked pending boss keys (W3_PRINCIPAL/W3_PROOF absent).
+  Clean-rejection behavior IS covered and passing (test_createStorageClient_throwsWhenUcan
+  EnvIsMissing).
+
+=== VERDICT: FIX-REQUIRED ===
+Two issues must land before green:
+  P0 R1: frame-src must allow https://verify.walletconnect.org (WalletConnect SDK v3+
+    attestation iframe domain; the hotfix allowlisted the outdated .com). The demo-killer
+    the hotfix aimed to kill is still live on the wallet modal path.
+  P1 R2: add api-notarize tests for the anchor-failure branch (fetch fail + non-2xx ->
+    console.error, otsQueued:false, otsError surfaced; happy path pins otsQueued:true).
+Everything else (X4, K1, KV, R3, README) verified, all four gates green (23 forge /
+331 x2 vitest / tsc clean / build exit 0).
+
+SIGNED: Worker B, 2026-10-18T22:40+05:00 (verification run 2026-10-18 17:27-17:40 UTC)
+
+=====================================================================
+FIX ASSIGNMENT RE-VERIFICATION (appended) — 2026-10-18 ~17:45-18:05 UTC
+=====================================================================
+P0 (manager-applied, re-verified): next.config.js L24 now reads
+  frame-src 'self' https://*.walletconnect.com https://*.walletconnect.org
+  https://verify.walletconnect.org
+  Rebuilt + restarted :3200 (headers() bake into the build manifest — the
+  stale pre-fix next-server on :3200 was killed by PID and replaced).
+  Served live (curl -sI /notarize): frame-src includes *.walletconnect.org
+  and verify.walletconnect.org. script-src/connect-src unchanged.
+  Browser acceptance re-run (securitypolicyviolation scanner):
+  - Desktop 1280x800 /notarize -> Connect Wallet modal opens -> WalletConnect:
+    cspViolations: [] (was frame-src/blockedURI verify.walletconnect.org x2).
+    Resource timing shows https://verify.walletconnect.org/v3/attestation
+    (initiatorType: iframe) and https://pulse.walletconnect.org/e (fetch) —
+    requests dispatched = allowed past CSP (blocked requests never appear).
+  - Mobile 390x844, same flow x2 runs: cspViolations: [] both runs; same two
+    walletconnect.org resource-timing entries dispatched.
+  - Total post-fix: 4 clean scans (0 violations) vs 3/3 failing pre-fix.
+  - Screenshots OVERWRITTEN with fixed state: r1-wallet-modal-desktop.png
+    (32961 B, 1280x800) and r1-wallet-modal-mobile.png (28480 B, 390x844).
+  - Non-CSP observation: mobile QR view throws "Uncaught RangeError: invalid
+    border=0" from chunk 1866-*.js — the vendor `qrcode` library (QR border
+    validation) inside the WalletConnect/RainbowKit bundle. Not a CSP issue,
+    not app code; headless-environment noise. Headless completion of a wallet
+    connection remains blocked-device (wc: deep-link ends the headless page).
+
+P1 (implemented by Worker B, file: src/app/api/__tests__/api-notarize.test.ts):
+  New describe "POST /api/notarize — OTS anchor failure surfacing":
+  - test_api_notarize_reportsOtsQueuedTrueWhenAnchorSucceeds
+  - test_api_notarize_reportsOtsQueuedFalseAndLogsWhenAnchorFetchRejects
+  - test_api_notarize_reportsOtsQueuedFalseAndLogsWhenAnchorReturnsNon2xx
+  All 3 PASS (file now 29/29). Full suite: 334 passed (331 + 3), 19 files,
+  exit 0. npx tsc --noEmit: exit 0 clean. npm run build: exit 0, 12/12 pages.
+
+SIGNED: Worker B, 2026-10-18T18:05+05:00 (fix re-verification)
