@@ -264,8 +264,8 @@ contract NotaryRegistry is AccessControl, Pausable, ReentrancyGuard, EIP712, Non
             revert InvalidTimestamp();
         }
         if (notary == signer) revert SameParty();
-        if (stateCode != notaries[notary].stateCode) revert JurisdictionMismatch();
         if (!isNotaryActive(notary)) revert NotaryNotActive();
+        if (stateCode != notaries[notary].stateCode) revert JurisdictionMismatch();
 
         bytes32 notaryDigest = _hashTypedDataV4(
             keccak256(

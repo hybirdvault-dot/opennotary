@@ -8,7 +8,7 @@
 import { kv } from '@vercel/kv';
 import type { Hex } from 'viem';
 
-/** Seconds in 24 hours — TTL applied to every cached extra. */
+/** Seconds in 24 hours — TTL applied only to transient commission records. */
 const TTL_SECONDS = 24 * 60 * 60;
 
 /** A notary commission awaiting production relayer registration. */
@@ -46,7 +46,8 @@ export async function cachePendingCommission(record: PendingCommission): Promise
 }
 
 /**
- * Caches per-act extras under `act-extras:<docHash>` (24h TTL).
+ * Caches per-act extras under `act-extras:<docHash>` (persistent — no TTL:
+ * attestation UIDs, tx hashes and retrieval URIs must outlive any cache window).
  *
  * No-op when KV is not configured.
  */
@@ -54,7 +55,7 @@ export async function cacheActExtras(docHash: Hex, extras: ActExtras): Promise<v
   if (!isKvConfigured()) {
     return;
   }
-  await kv.set(`act-extras:${docHash}`, extras, { ex: TTL_SECONDS });
+  await kv.set(`act-extras:${docHash}`, extras);
 }
 
 /**
@@ -71,7 +72,8 @@ export async function getCachedActExtras(docHash: Hex): Promise<ActExtras | null
 }
 
 /**
- * Caches a serialized (base64) OpenTimestamps proof under `ots:<digest>`.
+ * Caches a serialized (base64) OpenTimestamps proof under `ots:<digest>`
+ * (persistent — no TTL: Bitcoin proofs are permanent evidence).
  *
  * No-op when KV is not configured.
  */
@@ -79,7 +81,7 @@ export async function cacheOtsProof(digest: Hex, otsProofBase64: string): Promis
   if (!isKvConfigured()) {
     return;
   }
-  await kv.set(`ots:${digest}`, otsProofBase64, { ex: TTL_SECONDS });
+  await kv.set(`ots:${digest}`, otsProofBase64);
 }
 
 /**

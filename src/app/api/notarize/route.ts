@@ -342,17 +342,29 @@ export async function POST(request: Request): Promise<Response> {
       txHash: txHash as Hex,
     });
 
-    // Fire-and-forget the Bitcoin anchor over keccak256(docHash+txHash+uid),
-    // carrying the internal Bearer ANCHOR_API_TOKEN.
+    // Queue the Bitcoin anchor over keccak256(docHash+txHash+uid), carrying the
+    // internal Bearer ANCHOR_API_TOKEN. Failures are logged and surfaced through
+    // the `otsQueued` flag — never swallowed silently.
     const otsDigest = keccak256(concat([docHash as Hex, txHash as Hex, attestationUid]));
-    void fetch(new URL('/api/anchor/btc', request.url), {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${process.env.ANCHOR_API_TOKEN ?? ''}`,
-      },
-      body: JSON.stringify({ digest: otsDigest }),
-    }).catch(() => undefined);
+    let otsQueued = true;
+    let otsError: string | undefined;
+    try {
+      const anchorResponse = await fetch(new URL('/api/anchor/btc', request.url), {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${process.env.ANCHOR_API_TOKEN ?? ''}`,
+        },
+        body: JSON.stringify({ digest: otsDigest }),
+      });
+      if (!anchorResponse.ok) {
+        throw new Error(`anchor endpoint returned ${anchorResponse.status}`);
+      }
+    } catch (err) {
+      console.error('OTS anchor failed:', err);
+      otsQueued = false;
+      otsError = 'anchoring failed — will retry';
+    }
 
     // (g) Cache the act + demo extras (KV is read-through cache, never truth).
     await cacheAct(docHash as Hex, {
@@ -372,7 +384,7 @@ export async function POST(request: Request): Promise<Response> {
       otsDigest,
     });
 
-    return Response.json({ ok: true, attestationUid, otsQueued: true });
+    return Response.json({ ok: true, attestationUid, otsQueued, ...(otsError ? { otsError } : {}) });
   } catch {
     return jsonError(500, 'internal');
   }

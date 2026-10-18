@@ -9,6 +9,7 @@ import type { Hex } from 'viem';
 
 import { getAttestation } from '@/lib/attest';
 import { getAct, getNotaryRegistryAddress } from '@/lib/contract';
+import { bytes32ToCid } from '@/lib/cid';
 import { cacheAct } from '@/lib/kv';
 import { getCachedActExtras, getCachedOtsProof } from '@/app/api/_lib/kv-extras';
 import { enforceRateLimit, jsonError } from '@/app/api/_lib/http';
@@ -149,12 +150,22 @@ export async function GET(
       }
     }
 
+    // Derive the retrieval link from the ON-CHAIN ipfsCid (lossless multihash
+    // digest) so the displayed CID is cryptographically bound to the signed
+    // value — never a client-asserted extras field.
+    let ipfsUri: string | null = null;
+    try {
+      ipfsUri = `https://${bytes32ToCid(act.ipfsCid)}.ipfs.w3s.link`;
+    } catch {
+      ipfsUri = null;
+    }
+
     const response: VerifyResponse = {
       docHash,
       act,
       attestation,
       ots,
-      ipfsUri: extras?.ipfsUri ?? null,
+      ipfsUri,
       txHash: extras?.txHash ?? null,
     };
     return Response.json(response);

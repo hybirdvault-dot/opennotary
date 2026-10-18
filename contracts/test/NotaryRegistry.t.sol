@@ -291,10 +291,10 @@ contract NotaryRegistryTest is Test {
     function test_Notarize_RevertsWhenNotaryUnregisteredOrExpired() public {
         address pending = vm.addr(SECOND_NOTARY_PK);
 
-        // Never registered: signatures are valid and the act's stateCode matches the empty record (bytes32(0)),
-        // so only the active-notary check can fail.
+        // Never registered: the active-notary guard runs BEFORE the jurisdiction check, so the
+        // accurate NotaryNotActive error surfaces even with a non-matching stateCode ("NY").
         ActParams memory unregistered = _actParams(keccak256("deed-unregistered"), pending, signer);
-        unregistered.stateCode = bytes32(0);
+        unregistered.stateCode = bytes32("NY");
         bytes memory notarySig1 = _signNotaryAttestation(SECOND_NOTARY_PK, unregistered, registry.nonces(unregistered.notary));
         bytes memory signerSig1 = _signSignerAck(SIGNER_PK, unregistered, registry.nonces(unregistered.signer));
         vm.expectRevert(NotaryRegistry.NotaryNotActive.selector);

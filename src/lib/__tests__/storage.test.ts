@@ -14,19 +14,44 @@ const h = vi.hoisted(() => ({
   create: vi.fn(),
   uploadFile: vi.fn(),
   get: vi.fn(),
+  parsePrincipal: vi.fn(),
+  parseProof: vi.fn(),
+  addSpace: vi.fn(),
+  setCurrentSpace: vi.fn(),
+  StoreMemory: vi.fn(),
 }));
 
 vi.mock('@web3-storage/w3up-client', () => ({
   create: (...args: unknown[]) => h.create(...args),
 }));
 
+vi.mock('@web3-storage/w3up-client/principal/ed25519', () => ({
+  parse: (...args: unknown[]) => h.parsePrincipal(...args),
+}));
+
+vi.mock('@web3-storage/w3up-client/proof', () => ({
+  parse: (...args: unknown[]) => h.parseProof(...args),
+}));
+
+vi.mock('@web3-storage/w3up-client/stores/memory', () => ({
+  StoreMemory: class {
+    constructor() {
+      h.StoreMemory();
+    }
+  },
+}));
+
 const MOCK_SDK_CLIENT = {
   uploadFile: (...args: unknown[]) => h.uploadFile(...args),
   get: (...args: unknown[]) => h.get(...args),
+  addSpace: (...args: unknown[]) => h.addSpace(...args),
+  setCurrentSpace: (...args: unknown[]) => h.setCurrentSpace(...args),
 };
 
-const TOKEN_ENV = 'WEB3_STORAGE_TOKEN';
-const TOKEN = 'did:key:z6Mkf-token-for-tests';
+const PRINCIPAL_ENV = 'W3_PRINCIPAL';
+const PROOF_ENV = 'W3_PROOF';
+const PRINCIPAL = 'did:key:z6Mkf-principal-for-tests';
+const PROOF = 'ucan-proof-for-tests';
 const CID_STRING = 'bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi';
 const DOCUMENT_BODY = 'notarized document body';
 
@@ -36,11 +61,14 @@ function cidLink(cid: string): { toString(): string } {
 
 function setTokenEnv(value: string | null): void {
   if (value === null) {
-    vi.stubEnv(TOKEN_ENV, '');
-    delete process.env[TOKEN_ENV];
+    vi.stubEnv(PRINCIPAL_ENV, '');
+    delete process.env[PRINCIPAL_ENV];
+    vi.stubEnv(PROOF_ENV, '');
+    delete process.env[PROOF_ENV];
     return;
   }
-  vi.stubEnv(TOKEN_ENV, value);
+  vi.stubEnv(PRINCIPAL_ENV, value);
+  vi.stubEnv(PROOF_ENV, PROOF);
 }
 
 function fetchMock(impl: ReturnType<typeof vi.fn>): void {
@@ -56,7 +84,12 @@ beforeEach(() => {
   h.create.mockReset().mockResolvedValue(MOCK_SDK_CLIENT);
   h.uploadFile.mockReset();
   h.get.mockReset();
-  setTokenEnv(TOKEN);
+  h.parsePrincipal.mockReset().mockReturnValue({ did: () => PRINCIPAL });
+  h.parseProof.mockReset().mockResolvedValue({ ucan: true });
+  h.addSpace.mockReset().mockResolvedValue({ did: () => 'did:key:z6Mkf-space-for-tests' });
+  h.setCurrentSpace.mockReset().mockResolvedValue(undefined);
+  h.StoreMemory.mockReset();
+  setTokenEnv(PRINCIPAL);
 });
 
 afterEach(() => {
@@ -66,22 +99,25 @@ afterEach(() => {
 
 describe('src/lib/storage', () => {
   describe('createStorageClient', () => {
-    test('test_createStorageClient_throwsWhenTokenEnvIsMissing', async () => {
+    test('test_createStorageClient_throwsWhenUcanEnvIsMissing', async () => {
       setTokenEnv(null);
       const { createStorageClient } = await importStorage();
 
       await expect((async () => createStorageClient())()).rejects.toThrow(
-        'WEB3_STORAGE_TOKEN is not set',
+        'W3_PRINCIPAL and W3_PROOF are not set',
       );
     });
 
-    test('test_createStorageClient_buildsClientFromTokenEnv', async () => {
+    test('test_createStorageClient_buildsClientFromUcanEnv', async () => {
       const { createStorageClient } = await importStorage();
 
       const client = await createStorageClient();
 
       expect(client).toBeTruthy();
+      expect(h.parsePrincipal).toHaveBeenCalledWith(PRINCIPAL);
       expect(h.create).toHaveBeenCalledTimes(1);
+      expect(h.addSpace).toHaveBeenCalledTimes(1);
+      expect(h.setCurrentSpace).toHaveBeenCalledTimes(1);
     });
   });
 

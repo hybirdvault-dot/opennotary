@@ -8,12 +8,15 @@
  * `lib/cid` as the single source of truth so the client and server agree.
  *
  * Note: w3up clients authenticate through UCAN delegations rather than bearer
- * tokens; `WEB3_STORAGE_TOKEN` gates client construction for the pinned
- * interface and deployment parity.
+ * tokens. Server deployments supply `W3_PRINCIPAL` (the agent DID) and
+ * `W3_PROOF` (a UCAN delegation exported by the `w3` CLI) — see `.env.example`.
  *
  * Source pattern: web3-storage/w3up examples.
  */
 import { create, type Client } from '@web3-storage/w3up-client';
+import { parse as parsePrincipal } from '@web3-storage/w3up-client/principal/ed25519';
+import { parse as parseProof } from '@web3-storage/w3up-client/proof';
+import { StoreMemory } from '@web3-storage/w3up-client/stores/memory';
 
 export { bytes32ToCid, cidToBytes32 } from './cid';
 
@@ -36,17 +39,26 @@ export interface StorageClient {
 }
 
 /**
- * Builds a Web3.Storage client from `WEB3_STORAGE_TOKEN`.
+ * Builds a Web3.Storage client from w3up UCAN credentials (`W3_PRINCIPAL` +
+ * `W3_PROOF`).
  *
- * @throws `Error('WEB3_STORAGE_TOKEN is not set')` when the variable is
- * missing.
+ * @throws `Error('W3_PRINCIPAL and W3_PROOF are not set')` when either
+ * variable is missing.
  */
 export function createStorageClient(): StorageClient {
-  if (!process.env.WEB3_STORAGE_TOKEN) {
-    throw new Error('WEB3_STORAGE_TOKEN is not set');
+  const principalStr = process.env.W3_PRINCIPAL;
+  const proofStr = process.env.W3_PROOF;
+  if (!principalStr || !proofStr) {
+    throw new Error('W3_PRINCIPAL and W3_PROOF are not set (w3up UCAN credentials)');
   }
 
-  const ready: Promise<Client> = create();
+  const ready: Promise<Client> = (async () => {
+    const principal = parsePrincipal(principalStr);
+    const client = await create({ principal, store: new StoreMemory() });
+    const space = await client.addSpace(await parseProof(proofStr));
+    await client.setCurrentSpace(space.did());
+    return client;
+  })();
 
   const handle: StorageClient & PromiseLike<Client> = {
     uploadFile: (file: Blob) => ready.then((client) => client.uploadFile(file)),

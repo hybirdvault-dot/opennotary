@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import type { Hex } from 'viem';
 
+import { bytes32ToCid } from '@/lib/cid';
+
 /**
  * API integrity tests for GET /api/verify/[docHash].
  *
@@ -222,7 +224,9 @@ describe('GET /api/verify/[docHash] — happy path', () => {
     expect(body.act.notary).toBe(ON_CHAIN_ACT.notary);
     expect(body.attestation).toBeNull();
     expect(body.ots).toEqual({ status: 'pending' });
-    expect(body.ipfsUri).toBeNull();
+    // ipfsUri is derived from the ON-CHAIN ipfsCid (lossless bytes32 -> CID), never null
+    // when the act carries a CID digest.
+    expect(body.ipfsUri).toBe(`https://${bytes32ToCid(ON_CHAIN_ACT.ipfsCid as Hex)}.ipfs.w3s.link`);
     expect(body.txHash).toBeNull();
   });
 
@@ -250,7 +254,9 @@ describe('GET /api/verify/[docHash] — happy path', () => {
     expect(body.attestation.uid).toBe(UID);
     expect(body.attestation.time).toBe('1800000100');
     expect(body.txHash).toBe(`0x${'44'.repeat(32)}`);
-    expect(body.ipfsUri).toBe('ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi');
+    // K1 binding: the client-asserted extras.ipfsUri ('ipfs://...') is deliberately
+    // IGNORED — the link is derived from the on-chain ipfsCid digest instead.
+    expect(body.ipfsUri).toBe(`https://${bytes32ToCid(ON_CHAIN_ACT.ipfsCid as Hex)}.ipfs.w3s.link`);
   });
 
   test('test_api_verify_uidQueryParamOverridesCachedUid', async () => {

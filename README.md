@@ -2,7 +2,7 @@
 
 > The settlement + attestation rails that RON platforms build on. Notarize.com's $25 is full-service including the notary's labour. Our $1 is the platform fee — the transaction layer for digital notarial acts.
 
-**Status:** 🚧 Phase 1 build in progress
+**Status:** ✅ Phases 1-3 complete (contract v2.0, 331 tests). Phase 4 (polish + demo video) in progress. Live on Base Sepolia testnet.
 **Event:** BLI Legal Tech Hackathon 2 — DoraHacks — deadline Nov 1, 2026
 
 ## What it does
@@ -79,6 +79,16 @@ opennotary/
 |---|---|---|
 | `NotaryRegistry` | Base Sepolia | `0x____________________________` (placeholder — set `NEXT_PUBLIC_NOTARY_REGISTRY_ADDRESS` in `.env`) |
 | EAS | Base Sepolia | `0x4200000000000000000000000000000000000021` |
+
+## Production Upgrade Path (post-hackathon)
+
+The following are intentionally out-of-scope for the hackathon demo:
+
+- **Admin key:** Single `DEFAULT_ADMIN_ROLE` for `registerNotary` + `revokeAct` + `pause`. Production: OpenZeppelin AccessManager with 3 roles (REGISTRAR, PAUSER, REVOKER) + Safe multisig + 48h timelock.
+- **Notary onboarding:** Currently stores a KV-only "pending commission". Production: relayer calls `registerNotary()` on-chain after BLI attestation is verified.
+- **Rate limiting:** In-memory per serverless instance (resets on cold start). Production: Vercel KV or Upstash Redis for distributed rate limiting.
+- **Signer identity:** Not verified (only the notary is BLI-attested). Production: World ID or Gitcoin Passport for proof-of-personhood.
+- **OpenTimestamps proofs:** Persisted in KV; production pins the `.ots` proof to IPFS permanently.
 
 ## Attribution
 
