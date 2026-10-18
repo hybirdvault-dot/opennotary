@@ -2,8 +2,10 @@
  * IPFS document storage via Web3.Storage (w3up).
  *
  * Documents are uploaded as single blobs and retrieved either through the
- * client's `get` or the public IPFS gateway. `cidToBytes32` produces the exact
- * value the `NotaryRegistry` stores in its `ipfsCid` field.
+ * client's `get` or the public IPFS gateway. The `ipfsCid` value the
+ * `NotaryRegistry` stores on-chain is derived from the CID's sha2-256 digest
+ * via {@link cidToBytes32} / {@link bytes32ToCid} — re-exported here from
+ * `lib/cid` as the single source of truth so the client and server agree.
  *
  * Note: w3up clients authenticate through UCAN delegations rather than bearer
  * tokens; `WEB3_STORAGE_TOKEN` gates client construction for the pinned
@@ -12,7 +14,8 @@
  * Source pattern: web3-storage/w3up examples.
  */
 import { create, type Client } from '@web3-storage/w3up-client';
-import { keccak256, toBytes, type Hex } from 'viem';
+
+export { bytes32ToCid, cidToBytes32 } from './cid';
 
 /**
  * Public IPFS gateway used when a client cannot fetch content directly.
@@ -89,16 +92,6 @@ export async function fetchByCid(
   const content =
     typeof resolved.get === 'function' ? await resolved.get(cid) : await fetchFromGateway(cid);
   return toBlob(content);
-}
-
-/**
- * Packs a CID string into the `bytes32` value stored on-chain as `ipfsCid`.
- *
- * @param cid - Content identifier string.
- * @returns `keccak256` of the CID's UTF-8 bytes.
- */
-export function cidToBytes32(cid: string): Hex {
-  return keccak256(toBytes(cid));
 }
 
 /**

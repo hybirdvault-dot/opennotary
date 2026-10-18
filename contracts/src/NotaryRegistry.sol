@@ -72,12 +72,13 @@ contract NotaryRegistry is AccessControl, Pausable, ReentrancyGuard, EIP712, Non
 
     /// @dev EIP-712 typehash for the notary's attestation message.
     bytes32 public constant NOTARY_ATTESTATION_TYPEHASH = keccak256(
-        "NotaryAttestation(bytes32 docHash,address signer,bytes32 ipfsCid,bytes32 docType,bytes32 stateCode,uint256 timestamp,uint256 nonce)"
+        "NotaryAttestation(bytes32 docHash,address signer,bytes32 ipfsCid,bytes32 docType,bytes32 stateCode,uint256 fee,uint256 timestamp,uint256 deadline,uint256 nonce)"
     );
 
     /// @dev EIP-712 typehash for the signer's acknowledgment message.
-    bytes32 public constant SIGNER_ACKNOWLEDGMENT_TYPEHASH =
-        keccak256("SignerAcknowledgment(bytes32 docHash,address notary,bytes32 ipfsCid,uint256 timestamp,uint256 nonce)");
+    bytes32 public constant SIGNER_ACKNOWLEDGMENT_TYPEHASH = keccak256(
+        "SignerAcknowledgment(bytes32 docHash,address notary,bytes32 ipfsCid,bytes32 docType,bytes32 stateCode,uint256 fee,uint256 timestamp,uint256 deadline,uint256 nonce)"
+    );
 
     /// @notice Registry of commissioned notaries keyed by address.
     mapping(address => Notary) public notaries;
@@ -140,8 +141,20 @@ contract NotaryRegistry is AccessControl, Pausable, ReentrancyGuard, EIP712, Non
     /// @notice The provided signer signature is invalid.
     error InvalidSignerSignature();
 
-    /// @notice The attested timestamp is in the future.
-    error FutureTimestamp();
+    /// @notice The attested timestamp is zero, in the future, or stale (more than one hour old).
+    error InvalidTimestamp();
+
+    /// @notice The signature deadline has passed.
+    error DeadlineExceeded();
+
+    /// @notice The notary and the signer are the same address.
+    error SameParty();
+
+    /// @notice The act's state code does not match the notary's commissioned state code.
+    error JurisdictionMismatch();
+
+    /// @notice The supplied fee does not equal the exact required notarization fee.
+    error FeeMismatch();
 
     /**
      * @notice Deploys the registry and grants admin rights.
@@ -162,7 +175,10 @@ contract NotaryRegistry is AccessControl, Pausable, ReentrancyGuard, EIP712, Non
 
     /**
      * @notice Registers a new commissioned notary.
-     * @dev Callable only by an admin. The commission expiry must be in the future.
+     * @dev Callable only by an admin. The commission expiry must be in the future. `NotaryAlreadyRegistered`
+     * is raised only while an existing entry is still active and its commission has not yet expired; an
+     * expired-but-active entry may be re-registered, which overwrites the stored record and reactivates
+     * the notary.
      * @param notary Address of the notary to register.
      * @param commissionHash Hash referencing the notary's commissioning credentials.
      * @param stateCode Packed state/jurisdiction code.
@@ -174,7 +190,9 @@ contract NotaryRegistry is AccessControl, Pausable, ReentrancyGuard, EIP712, Non
         bytes32 stateCode,
         uint256 commissionExpiry
     ) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (notaries[notary].active) revert NotaryAlreadyRegistered();
+        if (notaries[notary].active && block.timestamp <= notaries[notary].commissionExpiry) {
+            revert NotaryAlreadyRegistered();
+        }
         if (notary == address(0)) revert ZeroAddress();
         if (commissionExpiry <= block.timestamp) revert InvalidExpiry();
 
@@ -208,14 +226,20 @@ contract NotaryRegistry is AccessControl, Pausable, ReentrancyGuard, EIP712, Non
      * @dev The `notary` address is an explicit parameter so per-account nonces resolve EIP-2612-style:
      * the recovered signer of each digest must equal its declared address. Both signatures are verified
      * with ECDSA (never `msg.sender`), each account's nonce is consumed to prevent replay, and the $1.00
-     * USDC fee is split as 99 cents to the notary and 1 cent to the protocol treasury.
+     * USDC fee is split as 99 cents to the notary and 1 cent to the protocol treasury. Each digest binds
+     * the fee, timestamp and deadline alongside the payload fields: the declared fee must equal the exact
+     * split total, the call must arrive before the deadline, the attested timestamp must fall within one
+     * hour of `block.timestamp`, the act's `stateCode` must match the notary's commission, and the two
+     * parties must be distinct. The fee is committed to by both signatures but not stored in the act.
      * @param docHash Content hash of the notarized document.
      * @param notary Address of the commissioned notary performing the act.
      * @param signer Address of the acknowledging party paying the fee.
      * @param ipfsCid Content identifier referencing off-chain document/metadata.
      * @param docType Packed document type descriptor.
      * @param stateCode Packed state/jurisdiction code.
+     * @param fee Exact notarization fee both parties commit to, in USDC (6 decimals).
      * @param timestamp Unix timestamp attested to by both parties.
+     * @param deadline Unix timestamp after which the signed messages are no longer accepted.
      * @param notarySig EIP-712 signature of the notary's attestation.
      * @param signerSig EIP-712 signature of the signer's acknowledgment.
      */
@@ -226,26 +250,56 @@ contract NotaryRegistry is AccessControl, Pausable, ReentrancyGuard, EIP712, Non
         bytes32 ipfsCid,
         bytes32 docType,
         bytes32 stateCode,
+        uint256 fee,
         uint256 timestamp,
+        uint256 deadline,
         bytes calldata notarySig,
         bytes calldata signerSig
     ) external nonReentrant whenNotPaused {
         if (actExists[docHash]) revert ActAlreadyRecorded();
         if (signer == address(0) || notary == address(0)) revert ZeroAddress();
-        if (timestamp > block.timestamp) revert FutureTimestamp();
+        if (fee != NOTARY_FEE + PROTOCOL_FEE) revert FeeMismatch();
+        if (block.timestamp > deadline) revert DeadlineExceeded();
+        if (timestamp == 0 || timestamp > block.timestamp || timestamp + 1 hours < block.timestamp) {
+            revert InvalidTimestamp();
+        }
+        if (notary == signer) revert SameParty();
+        if (stateCode != notaries[notary].stateCode) revert JurisdictionMismatch();
         if (!isNotaryActive(notary)) revert NotaryNotActive();
 
         bytes32 notaryDigest = _hashTypedDataV4(
             keccak256(
                 abi.encode(
-                    NOTARY_ATTESTATION_TYPEHASH, docHash, signer, ipfsCid, docType, stateCode, timestamp, nonces(notary)
+                    NOTARY_ATTESTATION_TYPEHASH,
+                    docHash,
+                    signer,
+                    ipfsCid,
+                    docType,
+                    stateCode,
+                    fee,
+                    timestamp,
+                    deadline,
+                    nonces(notary)
                 )
             )
         );
         if (ECDSA.recover(notaryDigest, notarySig) != notary) revert InvalidNotarySignature();
 
         bytes32 signerDigest = _hashTypedDataV4(
-            keccak256(abi.encode(SIGNER_ACKNOWLEDGMENT_TYPEHASH, docHash, notary, ipfsCid, timestamp, nonces(signer)))
+            keccak256(
+                abi.encode(
+                    SIGNER_ACKNOWLEDGMENT_TYPEHASH,
+                    docHash,
+                    notary,
+                    ipfsCid,
+                    docType,
+                    stateCode,
+                    fee,
+                    timestamp,
+                    deadline,
+                    nonces(signer)
+                )
+            )
         );
         if (ECDSA.recover(signerDigest, signerSig) != signer) revert InvalidSignerSignature();
 

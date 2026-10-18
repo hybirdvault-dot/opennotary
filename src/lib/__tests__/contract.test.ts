@@ -21,7 +21,10 @@ const COMMISSION_HASH = ('0x' + '11'.repeat(32)) as Hex;
 const IPFS_CID = ('0x' + '22'.repeat(32)) as Hex;
 const DOC_TYPE = ('0x' + '33'.repeat(32)) as Hex;
 const STATE_CODE = ('0x' + '44'.repeat(32)) as Hex;
+const FEE = 1_000_000n;
 const TIMESTAMP = 1_700_000_000n;
+const DEADLINE = 1_700_003_600n;
+const NONCE = 5n;
 const COMMISSION_EXPIRY = 1_900_000_000n;
 const NOTARY_SIG = ('0x' + '55'.repeat(65)) as Hex;
 const SIGNER_SIG = ('0x' + '66'.repeat(65)) as Hex;
@@ -41,7 +44,9 @@ const NOTARIZE_ARGS = {
   ipfsCid: IPFS_CID,
   docType: DOC_TYPE,
   stateCode: STATE_CODE,
+  fee: FEE,
   timestamp: TIMESTAMP,
+  deadline: DEADLINE,
   notarySig: NOTARY_SIG,
   signerSig: SIGNER_SIG,
 };
@@ -247,6 +252,37 @@ describe('src/lib/contract', () => {
 
       await expect(getNotary(makePublicClient(readContract), NOTARY)).rejects.toBe(failure);
     });
+
+    test('test_getNonce_readsRegistryNonceForAccount', async () => {
+      const readContract = vi.fn().mockResolvedValue(NONCE);
+      const { getNonce } = await import('@/lib/contract');
+
+      const nonce = await getNonce(makePublicClient(readContract), NOTARY);
+
+      expect(readContract).toHaveBeenCalledWith(
+        expect.objectContaining({
+          address: REGISTRY_ADDRESS,
+          functionName: 'nonces',
+          args: [NOTARY],
+        }),
+      );
+      expect(nonce).toBe(NONCE);
+    });
+
+    test('test_getNonce_returnsZeroForFreshAccount', async () => {
+      const readContract = vi.fn().mockResolvedValue(0n);
+      const { getNonce } = await import('@/lib/contract');
+
+      await expect(getNonce(makePublicClient(readContract), SIGNER)).resolves.toBe(0n);
+    });
+
+    test('test_getNonce_propagatesRpcFailureUnwrapped', async () => {
+      const failure = rpcFailure();
+      const readContract = vi.fn().mockRejectedValue(failure);
+      const { getNonce } = await import('@/lib/contract');
+
+      await expect(getNonce(makePublicClient(readContract), NOTARY)).rejects.toBe(failure);
+    });
   });
 
   describe('write delegation', () => {
@@ -293,7 +329,9 @@ describe('src/lib/contract', () => {
             IPFS_CID,
             DOC_TYPE,
             STATE_CODE,
+            FEE,
             TIMESTAMP,
+            DEADLINE,
             NOTARY_SIG,
             SIGNER_SIG,
           ],

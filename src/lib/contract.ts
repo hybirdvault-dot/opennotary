@@ -139,6 +139,25 @@ export async function getNotary(client: PublicClient, notary: Address): Promise<
 }
 
 /**
+ * Returns the current EIP-712 replay nonce for `account` (per-account, bumped
+ * on every `notarize` call that names the account as notary or signer).
+ *
+ * Read from chain so re-notarizing the same account after a first act works
+ * (a hardcoded nonce would make every subsequent signature fail on-chain).
+ *
+ * @param client - Public client used for the `nonces` read.
+ * @param account - Address whose nonce to read.
+ */
+export async function getNonce(client: PublicClient, account: Address): Promise<bigint> {
+  return (await client.readContract({
+    address: getNotaryRegistryAddress(),
+    abi: notaryRegistryAbi,
+    functionName: 'nonces',
+    args: [account],
+  })) as bigint;
+}
+
+/**
  * Submits a `registerNotary` transaction and returns its hash.
  *
  * @param walletClient - Signing client; its `account` sends the transaction.
@@ -170,9 +189,11 @@ export async function writeRegisterNotary(
  * Submits a `notarize` transaction and returns its hash.
  *
  * @param walletClient - Signing client; its `account` sends the transaction.
- * @param args - Act data plus both parties' EIP-712 signatures.
+ * @param args - Act data plus the committed fee/deadline and both parties'
+ * EIP-712 signatures (11-arg `notarize` call).
  * @throws The contract's custom errors (e.g. `ActAlreadyRecorded`,
- * `InvalidNotarySignature`) on revert; errors propagate unwrapped.
+ * `FeeMismatch`, `DeadlineExceeded`, `InvalidNotarySignature`) on revert; errors
+ * propagate unwrapped.
  */
 export async function writeNotarize(
   walletClient: WalletClient,
@@ -183,7 +204,9 @@ export async function writeNotarize(
     ipfsCid: Hex;
     docType: Hex;
     stateCode: Hex;
+    fee: bigint;
     timestamp: bigint;
+    deadline: bigint;
     notarySig: Hex;
     signerSig: Hex;
   },
@@ -199,7 +222,9 @@ export async function writeNotarize(
       args.ipfsCid,
       args.docType,
       args.stateCode,
+      args.fee,
       args.timestamp,
+      args.deadline,
       args.notarySig,
       args.signerSig,
     ],

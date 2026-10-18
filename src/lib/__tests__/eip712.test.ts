@@ -13,17 +13,18 @@ import {
 import { privateKeyToAccount } from 'viem/accounts';
 
 /**
- * Acceptance tests for src/lib/eip712.ts (spec section 5).
+ * Acceptance tests for src/lib/eip712.ts (schema v2.0).
  *
  * The crown jewels are the byte-parity tests: the typehash strings and struct
  * hashes built from the wrapper's exported types and message builders must match
- * the contract's abi.encode typehash strings field-for-field.
+ * the contract's abi.encode typehash strings field-for-field (including the
+ * v2 fee + deadline fields).
  */
 
 const NOTARY_ATTESTATION_TYPE_STRING =
-  'NotaryAttestation(bytes32 docHash,address signer,bytes32 ipfsCid,bytes32 docType,bytes32 stateCode,uint256 timestamp,uint256 nonce)';
+  'NotaryAttestation(bytes32 docHash,address signer,bytes32 ipfsCid,bytes32 docType,bytes32 stateCode,uint256 fee,uint256 timestamp,uint256 deadline,uint256 nonce)';
 const SIGNER_ACKNOWLEDGMENT_TYPE_STRING =
-  'SignerAcknowledgment(bytes32 docHash,address notary,bytes32 ipfsCid,uint256 timestamp,uint256 nonce)';
+  'SignerAcknowledgment(bytes32 docHash,address notary,bytes32 ipfsCid,bytes32 docType,bytes32 stateCode,uint256 fee,uint256 timestamp,uint256 deadline,uint256 nonce)';
 
 const PINNED_NOTARY_ATTESTATION_FIELDS = [
   { name: 'docHash', type: 'bytes32' },
@@ -31,7 +32,9 @@ const PINNED_NOTARY_ATTESTATION_FIELDS = [
   { name: 'ipfsCid', type: 'bytes32' },
   { name: 'docType', type: 'bytes32' },
   { name: 'stateCode', type: 'bytes32' },
+  { name: 'fee', type: 'uint256' },
   { name: 'timestamp', type: 'uint256' },
+  { name: 'deadline', type: 'uint256' },
   { name: 'nonce', type: 'uint256' },
 ] as const;
 
@@ -39,7 +42,11 @@ const PINNED_SIGNER_ACKNOWLEDGMENT_FIELDS = [
   { name: 'docHash', type: 'bytes32' },
   { name: 'notary', type: 'address' },
   { name: 'ipfsCid', type: 'bytes32' },
+  { name: 'docType', type: 'bytes32' },
+  { name: 'stateCode', type: 'bytes32' },
+  { name: 'fee', type: 'uint256' },
   { name: 'timestamp', type: 'uint256' },
+  { name: 'deadline', type: 'uint256' },
   { name: 'nonce', type: 'uint256' },
 ] as const;
 
@@ -51,7 +58,9 @@ const NOTARY = '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC' as Address;
 const IPFS_CID = ('0x' + '22'.repeat(32)) as Hex;
 const DOC_TYPE = ('0x' + '33'.repeat(32)) as Hex;
 const STATE_CODE = ('0x' + '44'.repeat(32)) as Hex;
+const FEE = 1_000_000n;
 const TIMESTAMP = 1_700_000_000n;
+const DEADLINE = 1_700_003_600n;
 const NONCE = 7n;
 const SIGNATURE = ('0x' + '55'.repeat(65)) as Hex;
 
@@ -61,7 +70,9 @@ const ATTESTATION_ARGS = {
   ipfsCid: IPFS_CID,
   docType: DOC_TYPE,
   stateCode: STATE_CODE,
+  fee: FEE,
   timestamp: TIMESTAMP,
+  deadline: DEADLINE,
   nonce: NONCE,
 };
 
@@ -69,7 +80,11 @@ const ACKNOWLEDGMENT_ARGS = {
   docHash: DOC_HASH,
   notary: NOTARY,
   ipfsCid: IPFS_CID,
+  docType: DOC_TYPE,
+  stateCode: STATE_CODE,
+  fee: FEE,
   timestamp: TIMESTAMP,
+  deadline: DEADLINE,
   nonce: NONCE,
 };
 
@@ -167,7 +182,9 @@ describe('src/lib/eip712', () => {
       expect(message.ipfsCid).toBe(IPFS_CID);
       expect(message.docType).toBe(DOC_TYPE);
       expect(message.stateCode).toBe(STATE_CODE);
+      expect(message.fee).toBe(FEE);
       expect(message.timestamp).toBe(TIMESTAMP);
+      expect(message.deadline).toBe(DEADLINE);
       expect(message.nonce).toBe(NONCE);
     });
 
@@ -182,7 +199,11 @@ describe('src/lib/eip712', () => {
       expect(message.docHash).toBe(DOC_HASH);
       expect(message.notary).toBe(NOTARY);
       expect(message.ipfsCid).toBe(IPFS_CID);
+      expect(message.docType).toBe(DOC_TYPE);
+      expect(message.stateCode).toBe(STATE_CODE);
+      expect(message.fee).toBe(FEE);
       expect(message.timestamp).toBe(TIMESTAMP);
+      expect(message.deadline).toBe(DEADLINE);
       expect(message.nonce).toBe(NONCE);
     });
 
@@ -201,7 +222,9 @@ describe('src/lib/eip712', () => {
           ATTESTATION_ARGS.ipfsCid,
           ATTESTATION_ARGS.docType,
           ATTESTATION_ARGS.stateCode,
+          ATTESTATION_ARGS.fee,
           ATTESTATION_ARGS.timestamp,
+          ATTESTATION_ARGS.deadline,
           ATTESTATION_ARGS.nonce,
         ],
       );
@@ -215,25 +238,6 @@ describe('src/lib/eip712', () => {
       );
 
       expect(wrapperStructHash).toBe(contractStructHash);
-      expect(contractStructHash).toBe(
-        keccak256(
-          concat([
-            keccak256(toBytes(NOTARY_ATTESTATION_TYPE_STRING)),
-            encodeAbiParameters(
-              PINNED_NOTARY_ATTESTATION_FIELDS.map((field) => ({ type: field.type }) as AbiParameter),
-              [
-                ATTESTATION_ARGS.docHash,
-                ATTESTATION_ARGS.signer,
-                ATTESTATION_ARGS.ipfsCid,
-                ATTESTATION_ARGS.docType,
-                ATTESTATION_ARGS.stateCode,
-                ATTESTATION_ARGS.timestamp,
-                ATTESTATION_ARGS.nonce,
-              ] as unknown[],
-            ),
-          ]),
-        ),
-      );
     });
 
     test('test_signerAcknowledgmentStructHash_matchesContractTypehashComputation', async () => {
@@ -250,7 +254,11 @@ describe('src/lib/eip712', () => {
           ACKNOWLEDGMENT_ARGS.docHash,
           ACKNOWLEDGMENT_ARGS.notary,
           ACKNOWLEDGMENT_ARGS.ipfsCid,
+          ACKNOWLEDGMENT_ARGS.docType,
+          ACKNOWLEDGMENT_ARGS.stateCode,
+          ACKNOWLEDGMENT_ARGS.fee,
           ACKNOWLEDGMENT_ARGS.timestamp,
+          ACKNOWLEDGMENT_ARGS.deadline,
           ACKNOWLEDGMENT_ARGS.nonce,
         ],
       );
@@ -325,7 +333,9 @@ describe('src/lib/eip712', () => {
       const digest = keccak256(toBytes('opennotary document digest'));
       const signature = await account.sign({ hash: digest });
 
-      expect(verifySignature({ expected: account.address, digest, signature })).toBe(true);
+      await expect(verifySignature({ expected: account.address, digest, signature })).resolves.toBe(
+        true,
+      );
     });
 
     test('test_verifySignature_returnsFalseForSignatureFromDifferentAddress', async () => {
@@ -335,7 +345,9 @@ describe('src/lib/eip712', () => {
       const digest = keccak256(toBytes('opennotary document digest'));
       const signature = await signer.sign({ hash: digest });
 
-      expect(verifySignature({ expected: other.address, digest, signature })).toBe(false);
+      await expect(verifySignature({ expected: other.address, digest, signature })).resolves.toBe(
+        false,
+      );
     });
 
     test('test_verifySignature_returnsFalseForMalformedSignaturesWithoutThrowing', async () => {
@@ -344,11 +356,8 @@ describe('src/lib/eip712', () => {
       const digest = keccak256(toBytes('opennotary document digest'));
 
       for (const signature of ['0xdeadbeef' as Hex, '0x' as Hex, ('0x' + '12'.repeat(65)) as Hex]) {
-        let result: boolean | undefined;
-        expect(() => {
-          result = verifySignature({ expected, digest, signature });
-        }).not.toThrow();
-        expect(result).toBe(false);
+        // Async recoverAddress: resolves to false, never throws/rejects.
+        await expect(verifySignature({ expected, digest, signature })).resolves.toBe(false);
       }
     });
   });

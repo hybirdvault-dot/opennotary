@@ -145,20 +145,31 @@ describe('src/lib/storage', () => {
     });
   });
 
-  describe('cidToBytes32', () => {
-    test('test_cidToBytes32_returnsKeccak256OfCidBytes', async () => {
+  describe('cidToBytes32 / bytes32ToCid (re-exported from cid.ts)', () => {
+    test('test_storageReexportsCidHelpersFromCidModule', async () => {
+      const storage = await importStorage();
+      const cid = await import('@/lib/cid');
+      const digest = `0x${'cd'.repeat(32)}`;
+
+      // The pinned pipeline: storage re-exports cid.ts's client-safe helpers.
+      expect(storage.cidToBytes32(CID_STRING)).toBe(cid.cidToBytes32(CID_STRING));
+      expect(storage.bytes32ToCid(digest)).toBe(cid.bytes32ToCid(digest));
+    });
+
+    test('test_storageCidToBytes32ReturnsRawDigestNotKeccakOfCidString', async () => {
       const { cidToBytes32 } = await importStorage();
 
       const value = cidToBytes32(CID_STRING);
 
-      expect(value).toBe(keccak256(toBytes(CID_STRING)));
       expect(value).toMatch(/^0x[0-9a-fA-F]{64}$/);
+      expect(value).not.toBe(keccak256(toBytes(CID_STRING)));
     });
 
-    test('test_cidToBytes32_hashesEmptyCidToKeccakOfEmptyBytes', async () => {
-      const { cidToBytes32 } = await importStorage();
+    test('test_storageBytes32ToCidRoundTripsThroughCidToBytes32', async () => {
+      const storage = await importStorage();
+      const digest = `0x${'ab'.repeat(32)}`;
 
-      expect(cidToBytes32('')).toBe(keccak256(toBytes('')));
+      expect(storage.cidToBytes32(storage.bytes32ToCid(digest))).toBe(digest);
     });
   });
 });

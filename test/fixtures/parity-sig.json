@@ -1,0 +1,22 @@
+{
+  "digest": "0x2b4a3df16fcd7020afbb247c98c8fcff923e95b83d9b35809a95504ec5e86e46",
+  "signature": "0x9a14b40156847b9f4708706cac108ab3ec951c8d81ec3ba4f143023204194a143dbca8d33d8158af4fee9f5fcd8f4c2404a0d57ab8f1fc87a98c2bf7628022271c",
+  "signer": "0xe05fcC23807536bEe418f142D19fa0d21BB0cfF7",
+  "message": {
+    "docHash": "0x11e6f4b1be6f5b065a1dbbbfd07ce38ec873194526663772c2bd419b19636647",
+    "signer": "0xe05fcC23807536bEe418f142D19fa0d21BB0cfF7",
+    "ipfsCid": "0x17222bbd9f94ed58a1b2a66825ed784dce592052f7d0810c5de000d15e27a5a7",
+    "docType": "0xa6e907d8f0bfe18c257f6661db299bd53a18064ed87a0eb0a6d25651b35db4fb",
+    "stateCode": "0x4341000000000000000000000000000000000000000000000000000000000000",
+    "fee": 1000000,
+    "timestamp": 1800000000,
+    "deadline": 1800003600,
+    "nonce": 0
+  },
+  "domain": {
+    "name": "OpenNotary",
+    "version": "1",
+    "chainId": 84532,
+    "verifyingContract": "0x5FbDB2315678afecb367f032d93F642f64180aa3"
+  }
+}

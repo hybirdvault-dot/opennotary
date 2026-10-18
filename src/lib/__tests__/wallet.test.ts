@@ -4,10 +4,18 @@ import { baseSepolia } from 'wagmi/chains';
 /**
  * Acceptance tests for src/lib/wallet.ts (spec section 1).
  *
- * The wallet stack is mocked at the package boundary: both `wagmi` and
- * `@rainbow-me/rainbowkit` may supply `getDefaultConfig` (RainbowKit installation
- * docs re-export it), so both are stubbed with the same recorder. `wagmi/chains`
- * stays real so chain pinning is asserted against the genuine baseSepolia object.
+ * The wallet stack is fully mocked at the package boundary with pure
+ * factories — `wagmi` and `@rainbow-me/rainbowkit` (either may supply
+ * `getDefaultConfig`) never evaluate their real implementations, so importing
+ * `src/lib/wallet` is deterministic and effectively instant. `wagmi/chains`
+ * stays real so chain pinning is asserted against the genuine baseSepolia
+ * object.
+ *
+ * `src/lib/wallet` reads its env at module scope, so the env-dependent
+ * assertions reload the module via the `importWallet()` helper after stubbing
+ * the environment. Because the entire wallet stack is mocked with pure
+ * factories, each reload re-evaluates only `src/lib/wallet` — no network,
+ * timers or browser globals — so every test runs the same way every time.
  */
 
 const h = vi.hoisted(() => ({
@@ -15,15 +23,12 @@ const h = vi.hoisted(() => ({
   darkTheme: vi.fn(),
 }));
 
-vi.mock('wagmi', async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return { ...actual, getDefaultConfig: h.getDefaultConfig };
-});
+vi.mock('wagmi', () => ({ getDefaultConfig: h.getDefaultConfig }));
 
-vi.mock('@rainbow-me/rainbowkit', async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return { ...actual, getDefaultConfig: h.getDefaultConfig, darkTheme: h.darkTheme };
-});
+vi.mock('@rainbow-me/rainbowkit', () => ({
+  getDefaultConfig: h.getDefaultConfig,
+  darkTheme: h.darkTheme,
+}));
 
 const SENTINEL_CONFIG = { marker: 'wagmi-config' };
 const SENTINEL_THEME = { marker: 'rainbowkit-theme' };
@@ -35,6 +40,7 @@ function unsetEnv(name: string): void {
   delete process.env[name];
 }
 
+/** Reloads `src/lib/wallet` against the currently stubbed environment. */
 async function importWallet(): Promise<typeof import('@/lib/wallet')> {
   vi.resetModules();
   return await import('@/lib/wallet');

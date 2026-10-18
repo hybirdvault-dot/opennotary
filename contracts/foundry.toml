@@ -13,6 +13,8 @@ remappings = [
     "@openzeppelin/contracts/=../lib/openzeppelin-contracts/contracts/",
     "forge-std/=../lib/forge-std/src/",
 ]
+# Read-only access to the cross-language parity fixture (Batch 6 Parity.t.sol).
+fs_permissions = [{ access = "read", path = "../test/fixtures" }]
 
 [fmt]
 line_length = 120
